@@ -12,6 +12,8 @@ source "$ROOT/scripts/build_avs_deps.sh"
 source "$ROOT/scripts/build_hardware.sh"
 # shellcheck source=scripts/configure_options.sh
 source "$ROOT/scripts/configure_options.sh"
+# shellcheck source=scripts/build_placebo.sh
+source "$ROOT/scripts/build_placebo.sh"
 
 case "$PLATFORM:$(uname -m)" in
     linux_amd64:x86_64|linux_arm64:aarch64) ;;
@@ -29,6 +31,8 @@ apt-get install -y --no-install-recommends -qq \
     libdav1d-dev libbluray-dev libchromaprint-dev libgnutls28-dev \
     libsmbclient-dev libssh-dev librtmp-dev zlib1g-dev \
     libva-dev libvdpau-dev libdrm-dev \
+    libvulkan-dev spirv-tools glslang-dev \
+    meson ninja-build python3-jinja2 libfast-float-dev \
     libass-dev libfreetype-dev libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
     fonts-dejavu-core "${platform_packages[@]}"
 
@@ -38,6 +42,7 @@ set_configure_options
 check_configure_options
 build_avs_deps
 build_hardware
+build_placebo
 cd "$WORKDIR/ffmpeg"
 ./configure "${CONFIGURE_FLAGS[@]}"
 make -j"$JOBS"

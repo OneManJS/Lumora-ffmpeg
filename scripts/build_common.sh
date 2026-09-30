@@ -54,6 +54,7 @@ archive_build_logs() {
     trap - EXIT
     mkdir -p "$DIST/logs.$PLATFORM"
     for file in "$WORKDIR/ffmpeg/ffbuild/config.log" \
+        "$WORKDIR/build-libplacebo/meson-logs/meson-log.txt" \
         "$WORKDIR/deps-src/davs2/build/linux/config.log" \
         "$WORKDIR/deps-src/xavs2/build/linux/config.log"; do
         if [[ -f "$file" ]]; then
@@ -90,7 +91,8 @@ write_build_info() {
         printf 'build_scripts_commit=%s\n' "${GITHUB_SHA:-unknown}"
         printf '\n源码补丁 SHA256：\n'
         (cd "$ROOT" && sha256sum scripts/patches/*.patch)
-        for name in davs2 xavs2 uavs3d nv-codec-headers; do
+        for name in davs2 xavs2 uavs3d nv-codec-headers libplacebo vulkan-headers spirv-headers; do
+            [[ -d "$WORKDIR/deps-src/$name" ]] || continue
             printf '%s_commit=%s\n' "$name" "$(git -C "$WORKDIR/deps-src/$name" rev-parse HEAD)"
             printf '%s_repo=%s\n' "$name" "$(git -C "$WORKDIR/deps-src/$name" remote get-url origin)"
         done

@@ -33,11 +33,11 @@ def verify_capabilities(ffmpeg, platform, allow_missing_dovi_split):
     expected = {
         "encoders": {"libx264", "aac", "mjpeg", "webvtt", "pcm_s16le", "libx265", "libsvtav1", "libxavs2"},
         "decoders": {"libdav1d", "libdavs2", "libuavs3d"},
-        "filters": {"scale", "thumbnail", "silencedetect", "zscale", "tonemap", "subtitles", "ass", "drawtext"},
+        "filters": {"scale", "thumbnail", "silencedetect", "zscale", "tonemap", "libplacebo", "subtitles", "ass", "drawtext"},
         "muxers": {"mp4", "matroska", "hls", "mpegts", "image2pipe", "webvtt", "chromaprint", "s16le", "null", "avs2"},
         "protocols": {"file", "pipe", "http", "https", "tls", "bluray", "sftp", "rtmp", "rtmps"},
         "bsfs": {"dovi_rpu"},
-        "hwaccels": {"cuda"},
+        "hwaccels": {"cuda", "vulkan"},
     }
     expected["encoders"].update({"h264_nvenc", "hevc_nvenc"})
     expected["decoders"].update({"h264_cuvid", "hevc_cuvid"})
@@ -64,6 +64,8 @@ def verify_capabilities(ffmpeg, platform, allow_missing_dovi_split):
         require(not missing, f"缺少 {kind} 能力：{', '.join(sorted(missing))}")
     options = run([ffmpeg, "-hide_banner", "-h", "bsf=dovi_rpu"]).stdout
     require(b"-strip " in options, "dovi_rpu 缺少 strip 参数")
+    options = run([ffmpeg, "-hide_banner", "-h", "filter=libplacebo"]).stdout
+    require(b"apply_dolbyvision" in options, "libplacebo 缺少 Dolby Vision 应用选项")
 
 
 def verify_subtitles(ffmpeg, folder, font=None):

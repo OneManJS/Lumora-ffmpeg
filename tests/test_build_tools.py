@@ -76,15 +76,17 @@ class VerificationTests(unittest.TestCase):
         outputs = {
             "-encoders": "libx264 aac mjpeg webvtt pcm_s16le libx265 libsvtav1 libxavs2 h264_nvenc hevc_nvenc h264_vaapi hevc_vaapi h264_v4l2m2m h264_qsv hevc_qsv h264_amf hevc_amf",
             "-decoders": "libdav1d libdavs2 libuavs3d h264_cuvid hevc_cuvid h264_qsv hevc_qsv",
-            "-filters": "scale thumbnail silencedetect zscale tonemap subtitles ass drawtext hwupload_cuda scale_cuda hwdownload scale_vaapi scale_qsv",
+            "-filters": "scale thumbnail silencedetect zscale tonemap libplacebo subtitles ass drawtext hwupload_cuda scale_cuda hwdownload scale_vaapi scale_qsv",
             "-muxers": "mp4 matroska hls mpegts image2pipe webvtt chromaprint s16le null avs2",
             "-protocols": "file pipe http https tls bluray sftp rtmp rtmps smb",
             "-bsfs": "dovi_rpu",
-            "-hwaccels": "cuda vaapi vdpau drm qsv dxva2 d3d11va d3d12va",
+            "-hwaccels": "cuda vulkan vaapi vdpau drm qsv dxva2 d3d11va d3d12va",
         }
         option = command[-1]
         if option == "bsf=dovi_rpu":
             output = "  -strip <boolean>"
+        elif option == "filter=libplacebo":
+            output = "  apply_dolbyvision <boolean>"
         elif option in {"-protocols", "-bsfs", "-hwaccels"}:
             output = "\n".join(outputs[option].split())
         else:
@@ -127,6 +129,24 @@ class VerificationTests(unittest.TestCase):
             return result
         with patch.object(verify, "run", side_effect=without_subtitles):
             with self.assertRaisesRegex(RuntimeError, "subtitles"):
+                verify.verify_capabilities("ffmpeg", "win_x64", True)
+
+    def test_missing_dolby_vision_filter_is_rejected(self):
+        def without_placebo(command):
+            result = self.capability_result(command)
+            result.stdout = result.stdout.replace(b"libplacebo", b"disabled_filter")
+            return result
+        with patch.object(verify, "run", side_effect=without_placebo):
+            with self.assertRaisesRegex(RuntimeError, "libplacebo"):
+                verify.verify_capabilities("ffmpeg", "win_x64", True)
+
+    def test_missing_dolby_vision_option_is_rejected(self):
+        def without_dovi(command):
+            result = self.capability_result(command)
+            result.stdout = result.stdout.replace(b"apply_dolbyvision", b"disabled_option")
+            return result
+        with patch.object(verify, "run", side_effect=without_dovi):
+            with self.assertRaisesRegex(RuntimeError, "Dolby Vision"):
                 verify.verify_capabilities("ffmpeg", "win_x64", True)
 
     def test_subtitle_rendering_must_change_pixels(self):

@@ -161,6 +161,10 @@ jobs:
             mingw-w64-ucrt-x86_64-clang
             mingw-w64-ucrt-x86_64-python
             mingw-w64-ucrt-x86_64-libvpl
+            mingw-w64-ucrt-x86_64-libplacebo
+            mingw-w64-ucrt-x86_64-vulkan-headers
+            mingw-w64-ucrt-x86_64-vulkan-loader
+            mingw-w64-ucrt-x86_64-shaderc
             mingw-w64-ucrt-x86_64-amf-headers
             mingw-w64-ucrt-x86_64-libass
             mingw-w64-ucrt-x86_64-freetype

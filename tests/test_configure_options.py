@@ -51,6 +51,8 @@ class ConfigureOptionsTests(unittest.TestCase):
         self.assertIn(f"[--prefix={self.workdir.as_posix()}/stage]", log)
         self.assertIn("[--extra-cflags=-O3 -fstack-protector-strong -D_FORTIFY_SOURCE=2]", log)
         self.assertNotIn("--enable-libnfs", log)
+        self.assertIn("[--enable-vulkan]", log)
+        self.assertIn("[--enable-libplacebo]", log)
         self.assertIn("依赖编译阶段", result.stdout)
 
     def test_windows_explicitly_links_external_iconv(self):

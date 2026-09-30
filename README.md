@@ -7,7 +7,7 @@
 - 构建脚本：`scripts/build_media_tools.sh`（Linux）、`scripts/build_media_tools_win.sh`（Windows）
 - 硬件加速：NVIDIA NVENC/NVDEC + CUDA；Linux VAAPI/VDPAU/DRM/V4L2 M2M；x64 Intel QSV；Windows AMF/DXVA2/D3D11VA/D3D12VA
 - 字幕：WebVTT 输出、libass 的 SRT/ASS/SSA 烧录、FreeType/HarfBuzz 的 drawtext，支持字体发现与文字整形
-- 高级编码：HEVC（libx265）、AV1（libsvtav1）、HDR/DoVi 管线（libzimg + `zscale`/`tonemap`、`dovi_rpu`/`dovi_split`）
+- 高级编码：HEVC（libx265）、AV1（libsvtav1）、HDR/DoVi 管线（libzimg + `zscale`/`tonemap`、libplacebo/Vulkan Dolby Vision 应用、`dovi_rpu`/`dovi_split`）
 - 国产编码：AVS2 编/解码（libxavs2 / libdavs2）、AVS3 解码（libuavs3d），源码编译静态链入
 - 体积以实际 Release 为准：保留内置解码器和滤镜，Windows 还包含动态依赖，不承诺固定的压缩包大小
 
@@ -56,7 +56,7 @@ Lumora 此前直接 vendored 第三方（jellyfin-ffmpeg 8.1.2）构建，三平
 | `libx265` encoder（10/12bit） | HEVC 高效输出，HDR/DoVi 管线载体（前瞻需求） |
 | `libsvtav1` encoder | AV1 高效输出（前瞻需求） |
 | `zscale` filter（libzimg）+ `tonemap` filter | HDR10/HLG → SDR 色彩转换与 tone-mapping，10bit 管线（前瞻需求） |
-| `dovi_rpu` / `dovi_split` bsf | DoVi RPU 剥离/透传；P7 双层拆分（后者需 FFmpeg 9.0+） |
+| `dovi_rpu` / `dovi_split` bsf + `libplacebo` | DoVi RPU 剥离/透传、P7 双层拆分和 Profile 5 播放/截图色彩应用（后者需 Vulkan 驱动） |
 | `libxavs2` encoder / `libdavs2` decoder | 国产 AVS2 编码与解码（见 3.2 节） |
 | `libuavs3d` decoder | 国产 AVS3 解码（见 3.2 节） |
 | muxer：`matroska` / `mp4`(fMP4) / `hls`+MPEG-TS / `image2pipe` / `webvtt` / `chromaprint` / `null` / raw | remux、HLS、抽帧、字幕、指纹 |
@@ -75,7 +75,7 @@ Lumora 此前直接 vendored 第三方（jellyfin-ffmpeg 8.1.2）构建，三平
 | HEVC / AV1 高效输出 | libx265（广播级压缩效率）、libsvtav1（当前最快的生产级 AV1 编码器） |
 | Atmos / TrueHD / DTS:X | 解码器原生包含；对象元数据随 `-c copy` 直通完整保留，无需专门编码器 |
 
-边界：DoVi RPU 的**编辑/注入/生成**属于 dovi_tool（libdovi）生态，本构建不集成该工具；libplacebo/Vulkan/OpenCL 的 GPU 滤镜目前未纳入依赖范围，HDR 验收使用 zimg/tonemap CPU 路径，不能据此推断整条硬件转码链都支持 GPU tone-mapping；`libfdk-aac` 因需 `--enable-nonfree`（产物不可再分发）不启用。
+边界：本构建不提供 dovi_tool 命令行工具；它的 RPU 编辑/转换不能代替 Profile 5 像素的色彩转换。`libplacebo` 的 Dolby Vision 应用需要可用 Vulkan 设备（GPU 驱动，或支持所需特性的软件 Vulkan 实现），无 Vulkan 时不能退回普通 scale 冒充正确封面。Windows 的 libplacebo 软件包可能传递依赖 libdovi DLL，由依赖收集器一并打包。`libfdk-aac` 因需 `--enable-nonfree`（产物不可再分发）不启用。
 
 版本提示：FFmpeg 9 起对 https 源默认开启 TLS 证书校验（`tls_verify=1`），使用自签证书的媒体源会失败；主流网盘/CDN 直链不受影响。若必须回退 8.x（无 `dovi_split`），dispatch 时改 `ffmpeg_ref` 即可，验收门按源码中是否存在 `dovi_split` 实现决定该检查项，不依赖可变的版本字符串。
 
@@ -123,7 +123,7 @@ AV1 硬件编码、HEVC 10bit 等能力随 GPU 代际变化，不能仅凭编码
 
 字幕烧录通常在 CPU 上执行，连接 GPU 帧时需要按链路配置 `hwdownload`、像素格式转换、字幕滤镜及 `hwupload`，不能把 CPU 字幕滤镜直接接到 GPU 帧上。
 
-**当前不包含的可选组件**：`ffplay`、doc、debug 符号、Vulkan/OpenCL/libplacebo 滤镜、libaom、libvpx、libvmaf、tesseract/OCR、X11/GL/pulse/jack 桌面组件。此清单不代表项目永远不需要这些能力；新增时同步调整构建依赖与验收。
+**当前不包含的可选组件**：`ffplay`、doc、debug 符号、OpenCL、libaom、libvpx、libvmaf、tesseract/OCR、X11/GL/pulse/jack 桌面组件。Vulkan/libplacebo 已纳入 DoVi 截图路径，但仍要求运行环境提供 Vulkan 驱动。此清单不代表项目永远不需要其他能力；新增时同步调整构建依赖与验收。
 
 ## 4. 构建配置
 
@@ -136,7 +136,7 @@ AV1 硬件编码、HEVC 10bit 等能力随 GPU 代际变化，不能仅凭编码
     --disable-debug --disable-doc --disable-ffplay \
     --enable-ffnvcodec --enable-nvenc --enable-nvdec --enable-cuvid --enable-cuda-llvm \
     --enable-vaapi --enable-vdpau --enable-libdrm --enable-v4l2-m2m \
-    --disable-vulkan --disable-opencl \
+    --enable-vulkan --enable-libplacebo --disable-opencl \
     --enable-gpl --enable-version3 --enable-libx264 --enable-libx265 \
     --enable-libsvtav1 \
     --enable-libzimg \
@@ -159,7 +159,7 @@ AV1 硬件编码、HEVC 10bit 等能力随 GPU 代际变化，不能仅凭编码
 - `--disable-autodetect`：可复现性的关键。外部库不再按环境自动探测，只有上面显式 `--enable` 的一组进入链接；`zlib`/`iconv` 也因此显式声明（MKV 压缩头、字幕字符集转换依赖）。
 - `--enable-gpl --enable-version3`：Linux 的 `libsmbclient` 需要 GPLv3，两个平台统一按 GPLv3 构建，**不得再以 LGPL 形态再分发**。发布二进制时应满足对应许可证及源码提供义务。
 - HTTPS 显式启用 GnuTLS；仅启用 `librtmp` 或安装 TLS 库不会在 `--disable-autodetect` 下自动提供 HTTPS。
-- 高级编码三件套：libx265（HEVC）、libsvtav1（AV1）、libzimg（`zscale`）；DoVi 处理（`dovi_rpu` / `dovi_split`）是 FFmpeg 原生 bsf，不引入外部库。
+- 高级编码三件套：libx265（HEVC）、libsvtav1（AV1）、libzimg（`zscale`）；DoVi 处理包含 FFmpeg 原生 bsf 与 libplacebo/Vulkan 色彩应用。
 - 国产 AVS 三件套（libdavs2 / libxavs2 / libuavs3d）为源码编译依赖（见 3.2 节），构建时经 `PKG_CONFIG_PATH` 注入，**静态链入**产物。
 - 编译加固：stack canary + FORTIFY + full RELRO（bookworm gcc 默认 PIE）。
 - 构建依赖（`-dev` 包）与运行库同源于 bookworm，soname 天然一致；`libxml2` 等 libbluray 的传递依赖由 apt 自动解析。
@@ -220,6 +220,8 @@ FFMPEG_REF=n9.0.2 JOBS=4 bash scripts/build_media_tools_win.sh
 
 Windows 的 iconv 来自独立的 libiconv，构建显式链接 `-liconv`，避免关闭自动依赖探测后只检查 libc、最终链接缺少字符集转换符号。Linux 使用 libc 的 iconv 实现。
 
+FFmpeg 9 要求 libplacebo >= 7.351.0、Vulkan 头文件 >= 1.3.277，以及包含 `SpvFPEncoding` 的 SPIR-V 头文件，bookworm 系统包低于要求。Linux 使用 `build_placebo.sh` 固定源码构建 libplacebo、Vulkan-Headers 与 SPIRV-Headers，静态链接 libplacebo/GLSL 编译器，运行时新增 `libvulkan1`。Windows 使用 MSYS2 提供的版本及随包 DLL。Linux 静态依赖的安全更新需修改 pin 并重建，实际 commit 记录在 build-info。
+
 `JOBS` 限制编译并行度；`WORKDIR` 指定工作根目录，每次创建独立子目录，避免旧对象和 DLL 污染。`DIST` 指定输出目录，两者均可使用相对路径。构建目录会保留供排错，需要时自行清理旧目录。`FFMPEG_COMMIT` / `FFMPEG_VERSION` 由 CI 统一传入，本地通常无需设置。
 
 无需重新编译即可检查脚本或验收已安装的工具：
@@ -231,6 +233,20 @@ python3 scripts/verify_media_tools.py --platform win_x64 --ffmpeg /path/to/ffmpe
 ```
 
 旧版工具无 `dovi_split` 时加 `--allow-missing-dovi-split`；局部排错可选 `--checks capabilities`、`--checks workflows` 或 `--checks subtitles`，正式构建始终执行全部验收。验收覆盖主要软件转码链、SRT/ASS 烧录、drawtext 像素检查及平台 GPU 编译能力，临时媒体自动清理。字幕测试可通过 `--font /path/to/font.ttf` 指定字体。
+
+DoVi Profile 5 截图必须让 libplacebo 应用 RPU，不能直接把原始 HEVC 帧送入 JPEG 编码器，否则会出现绿紫偏色。部署机需有可用 Vulkan 驱动（Windows 通常由显卡驱动提供 `vulkan-1.dll`；Linux 容器需安装 Vulkan loader 并透传 GPU），命令示例：
+
+```bash
+ffmpeg -init_hw_device vulkan=vk:0 -filter_hw_device vk -ss 60 -i input.mkv -vf "libplacebo=w=1280:h=-2:apply_dolbyvision=true:colorspace=bt709:color_primaries=bt709:color_trc=iec61966-2-1:range=pc:tonemapping=bt.2390,format=rgb24" -frames:v 1 -update 1 -q:v 2 cover.jpg
+```
+
+也可使用 `python scripts/capture_cover.py input.mkv cover.jpg --ffmpeg /path/to/ffmpeg --ffprobe /path/to/ffprobe --seconds 60` 自动区分 SDR 与 DoVi/HDR。不覆盖已有输出。DoVi 采用软件 HEVC 解码保留 RPU side data，然后交给 libplacebo 重塑、色调映射并输出 sRGB 封面；普通 SDR 不需要 GPU。更新二进制不会自动修复仍使用普通 `scale` 的消费方命令，调用方必须同步采用此链路。
+
+无独立 GPU 的 Debian bookworm 可安装 `mesa-vulkan-drivers` 使用 lavapipe 软件 Vulkan；已用本地 Profile 5 短片段验证与 Windows GPU 输出一致性，但性能需按部署机器测量。Windows ZIP 包含 Vulkan loader，显卡 ICD 驱动仍由系统提供。
+
+实片验收：`python scripts/verify_dovi_cover.py input.mkv --ffmpeg /path/to/ffmpeg --ffprobe /path/to/ffprobe --reference confirmed-cover.png`。要求带 RPU 的 Profile 5，比较应用/忽略 RPU 的像素差；可选参考图必须是同时间点人工确认色彩正确的图像。没有参考图时只证明 RPU 生效，不宣称绝对色准。普通 CI 仅检查编译注册和 `apply_dolbyvision` 参数，不需要用户媒体或 GPU。
+
+Profile 8.1 等 HDR10 兼容片源可按需求先用 `dovi_rpu=strip=1`；Profile 5 不能只 strip RPU 后使用普通 HDR10 tone-mapping。上次测试得到的偏色 720p 文件已丢弃 RPU，不应作为正常色彩的转码产物，需从原片重做。
 
 在部署机器上运行 GPU 实机验收（不在普通托管 CI 中执行）：
 
@@ -257,7 +273,7 @@ python3 scripts/verify_hardware.py --backend amf
    apt-get install -y --no-install-recommends ca-certificates curl nginx tini tzdata util-linux \
        libx264-164 libx265-199 libsvtav1enc1 libzimg2 libdav1d6 libbluray2 libchromaprint1 \
        libsmbclient libssh-4 librtmp1 libgnutls30 zlib1g libstdc++6 \
-       libva2 libva-drm2 libvdpau1 libdrm2 \
+       libva2 libva-drm2 libvdpau1 libdrm2 libvulkan1 \
        libass9 libfreetype6 libfontconfig1 libharfbuzz0b libfribidi0 fontconfig \
        fonts-dejavu-core fonts-noto-cjk
    ```
@@ -295,4 +311,4 @@ python3 scripts/verify_hardware.py --backend amf
 - **arm64 依赖托管 runner**：私有仓库场景需 QEMU 或交叉编译兜底；
 - **action 未 SHA pin**：v4/v2 tag pin，供应链上是次级风险。
 
-演进方向（按需）：actions SHA pin + OIDC 发布签名；SBOM（syft）；GPU tone-mapping（libplacebo/Vulkan/OpenCL）与更多厂商专用后端；带显卡的自托管 CI；AVS3 10bit 变体（`COMPILE_10BIT=1`）；若消费方需要 DoVi RPU 注入/重标注，引入 dovi_tool（libdovi）作为配套工具。
+演进方向（按需）：actions SHA pin + OIDC 发布签名；SBOM（syft）；OpenCL 与更多厂商专用后端；带显卡及授权 DoVi 样本的自托管 CI；AVS3 10bit 变体（`COMPILE_10BIT=1`）；若消费方需要 DoVi RPU 注入/重标注，引入 dovi_tool 作为配套工具。
