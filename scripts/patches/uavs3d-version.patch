@@ -1,0 +1,15 @@
+diff --git a/version.sh b/version.sh
+--- a/version.sh
++++ b/version.sh
+@@ -18,7 +18,8 @@
+ fi
+ 
+-VER_R=`git rev-list origin/master | sort | wc -l | awk '{print $1}'`
+-VER_L=`git rev-list HEAD | sort | wc -l | awk '{print $1}'`
+-VER_SHA1=`git log -n 1 | head -n 1 | cut -d ' ' -f 2`
++# CMake 在独立构建目录执行本脚本，必须显式定位源码仓库。
++VER_L=$(git -C "$shell_dir" rev-list --count HEAD) || exit 1
++VER_R=$VER_L
++VER_SHA1=$(git -C "$shell_dir" rev-parse HEAD) || exit 1
+ 
+ major_version="1"

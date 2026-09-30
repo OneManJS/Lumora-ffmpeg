@@ -88,6 +88,8 @@ write_build_info() {
         printf 'platform=%s\nversion=%s\nffmpeg_ref=%s\nffmpeg_commit=%s\n' \
             "$PLATFORM" "$VERSION" "$FFMPEG_REF" "$FFMPEG_SHA"
         printf 'build_scripts_commit=%s\n' "${GITHUB_SHA:-unknown}"
+        printf '\n源码补丁 SHA256：\n'
+        (cd "$ROOT" && sha256sum scripts/patches/*.patch)
         for name in davs2 xavs2 uavs3d nv-codec-headers; do
             printf '%s_commit=%s\n' "$name" "$(git -C "$WORKDIR/deps-src/$name" rev-parse HEAD)"
             printf '%s_repo=%s\n' "$name" "$(git -C "$WORKDIR/deps-src/$name" remote get-url origin)"

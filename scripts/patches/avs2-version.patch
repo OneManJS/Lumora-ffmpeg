@@ -1,0 +1,12 @@
+diff --git a/version.sh b/version.sh
+--- a/version.sh
++++ b/version.sh
+@@ -16,6 +16,6 @@
+-# get version of remote origin/master and local HEAD
++# 构建号取自当前 HEAD，兼容固定 commit 的浅克隆。
+ if [ -d .git ] && command -v git >/dev/null 2>&1 ; then
+-    VER_R=`git rev-list --count origin/master`
++    VER_R=$(git rev-list --count HEAD) || exit 1
+     VER_SHA=`git rev-parse HEAD | cut -c -16`
+ fi
+ 
