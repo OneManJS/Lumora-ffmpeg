@@ -3,7 +3,9 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 
@@ -31,22 +33,63 @@ def verify_capabilities(ffmpeg, platform, allow_missing_dovi_split):
     expected = {
         "encoders": {"libx264", "aac", "mjpeg", "webvtt", "pcm_s16le", "libx265", "libsvtav1", "libxavs2"},
         "decoders": {"libdav1d", "libdavs2", "libuavs3d"},
-        "filters": {"scale", "thumbnail", "silencedetect", "zscale", "tonemap"},
+        "filters": {"scale", "thumbnail", "silencedetect", "zscale", "tonemap", "subtitles", "ass", "drawtext"},
         "muxers": {"mp4", "matroska", "hls", "mpegts", "image2pipe", "webvtt", "chromaprint", "s16le", "null", "avs2"},
         "protocols": {"file", "pipe", "http", "https", "tls", "bluray", "sftp", "rtmp", "rtmps"},
         "bsfs": {"dovi_rpu"},
+        "hwaccels": {"cuda"},
     }
+    expected["encoders"].update({"h264_nvenc", "hevc_nvenc"})
+    expected["decoders"].update({"h264_cuvid", "hevc_cuvid"})
+    expected["filters"].update({"hwupload_cuda", "scale_cuda", "hwdownload"})
     if platform.startswith("linux_"):
         expected["protocols"].update({"smb", "nfs"})
+        expected["hwaccels"].update({"vaapi", "vdpau", "drm"})
+        expected["encoders"].update({"h264_vaapi", "hevc_vaapi", "h264_v4l2m2m"})
+        expected["filters"].add("scale_vaapi")
+    if platform in {"linux_amd64", "win_x64"}:
+        expected["hwaccels"].add("qsv")
+        expected["encoders"].update({"h264_qsv", "hevc_qsv"})
+        expected["decoders"].update({"h264_qsv", "hevc_qsv"})
+        expected["filters"].add("scale_qsv")
+    if platform == "win_x64":
+        expected["hwaccels"].update({"dxva2", "d3d11va", "d3d12va"})
+        expected["encoders"].update({"h264_amf", "hevc_amf"})
     if not allow_missing_dovi_split:
         expected["bsfs"].add("dovi_split")
     for kind, names in expected.items():
         output = run([ffmpeg, "-hide_banner", f"-{kind}"]).stdout.decode("utf-8", errors="replace")
-        present = listed_names(output, 0 if kind in {"protocols", "bsfs"} else 1)
+        present = listed_names(output, 0 if kind in {"protocols", "bsfs", "hwaccels"} else 1)
         missing = names - present
         require(not missing, f"缺少 {kind} 能力：{', '.join(sorted(missing))}")
     options = run([ffmpeg, "-hide_banner", "-h", "bsf=dovi_rpu"]).stdout
     require(b"-strip " in options, "dovi_rpu 缺少 strip 参数")
+
+
+def verify_subtitles(ffmpeg, folder, font=None):
+    if font is None:
+        font = (Path(os.environ.get("SYSTEMROOT", "C:/Windows")) / "Fonts/arial.ttf"
+                if os.name == "nt" else Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"))
+    require(font.is_file(), f"找不到验收字体：{font}，请通过 --font 指定 TTF 字体")
+    shutil.copy2(font, folder / "font.ttf")
+    (folder / "burn.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nLumora\n", encoding="utf-8")
+    (folder / "burn.ass").write_text(
+        "[Script Info]\nScriptType: v4.00+\nPlayResX: 320\nPlayResY: 240\n"
+        "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
+        "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, "
+        "Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        "Style: Default,Arial,28,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1\n"
+        "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+        "Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{\\i1}Lumora{\\i0}\n", encoding="utf-8")
+    base = [ffmpeg, "-nostdin", "-v", "error", "-filter_threads", "1", "-f", "lavfi",
+            "-i", "color=black:size=320x240:rate=1:duration=1"]
+    output = ["-frames:v", "1", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"]
+    plain = run(base + output, cwd=folder).stdout
+    require(len(plain) == 320 * 240 * 3, "字幕验收基准帧尺寸异常")
+    for expression in ("subtitles=burn.srt:fontsdir=.", "ass=burn.ass:fontsdir=.",
+                       "drawtext=fontfile=font.ttf:text=Lumora:fontsize=28:fontcolor=white:x=10:y=10"):
+        rendered = run(base + ["-vf", expression] + output, cwd=folder).stdout
+        require(len(rendered) == len(plain) and rendered != plain, f"文字未实际渲染：{expression}")
 
 
 def verify_workflows(ffmpeg, ffprobe, folder):
@@ -129,14 +172,18 @@ def main():
     parser.add_argument("--ffprobe", default="ffprobe")
     parser.add_argument("--platform", required=True, choices=("linux_amd64", "linux_arm64", "win_x64"))
     parser.add_argument("--allow-missing-dovi-split", action="store_true", help="兼容不含 dovi_split 的旧版源码")
-    parser.add_argument("--checks", choices=("all", "capabilities", "workflows"), default="all", help="局部排查时选择检查范围；构建固定执行 all")
+    parser.add_argument("--checks", choices=("all", "capabilities", "workflows", "subtitles"), default="all", help="局部排查时选择检查范围；构建固定执行 all")
+    parser.add_argument("--font", type=Path, help="字幕烧录验收使用的 TTF 字体")
     args = parser.parse_args()
     print(run([args.ffmpeg, "-version"]).stdout.decode(errors="replace").splitlines()[0], flush=True)
     if args.checks in {"all", "capabilities"}:
         verify_capabilities(args.ffmpeg, args.platform, args.allow_missing_dovi_split)
-    if args.checks in {"all", "workflows"}:
+    if args.checks in {"all", "workflows", "subtitles"}:
         with tempfile.TemporaryDirectory(prefix="lumora-smoke-") as directory:
-            verify_workflows(args.ffmpeg, args.ffprobe, Path(directory))
+            if args.checks in {"all", "workflows"}:
+                verify_workflows(args.ffmpeg, args.ffprobe, Path(directory))
+            print("==> 验证 SRT/ASS 字幕烧录与 drawtext 实际像素", flush=True)
+            verify_subtitles(args.ffmpeg, Path(directory), args.font)
     print("==> 所选验收项目全部通过", flush=True)
 
 

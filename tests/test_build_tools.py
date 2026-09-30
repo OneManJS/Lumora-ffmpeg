@@ -74,17 +74,18 @@ class VerificationTests(unittest.TestCase):
     @staticmethod
     def capability_result(command):
         outputs = {
-            "-encoders": "libx264 aac mjpeg webvtt pcm_s16le libx265 libsvtav1 libxavs2",
-            "-decoders": "libdav1d libdavs2 libuavs3d",
-            "-filters": "scale thumbnail silencedetect zscale tonemap",
+            "-encoders": "libx264 aac mjpeg webvtt pcm_s16le libx265 libsvtav1 libxavs2 h264_nvenc hevc_nvenc h264_vaapi hevc_vaapi h264_v4l2m2m h264_qsv hevc_qsv h264_amf hevc_amf",
+            "-decoders": "libdav1d libdavs2 libuavs3d h264_cuvid hevc_cuvid h264_qsv hevc_qsv",
+            "-filters": "scale thumbnail silencedetect zscale tonemap subtitles ass drawtext hwupload_cuda scale_cuda hwdownload scale_vaapi scale_qsv",
             "-muxers": "mp4 matroska hls mpegts image2pipe webvtt chromaprint s16le null avs2",
             "-protocols": "file pipe http https tls bluray sftp rtmp rtmps smb nfs",
             "-bsfs": "dovi_rpu",
+            "-hwaccels": "cuda vaapi vdpau drm qsv dxva2 d3d11va d3d12va",
         }
         option = command[-1]
         if option == "bsf=dovi_rpu":
             output = "  -strip <boolean>"
-        elif option in {"-protocols", "-bsfs"}:
+        elif option in {"-protocols", "-bsfs", "-hwaccels"}:
             output = "\n".join(outputs[option].split())
         else:
             output = "\n".join(" ... " + name for name in outputs[option].split())
@@ -93,6 +94,44 @@ class VerificationTests(unittest.TestCase):
     def test_linux_protocol_uses_smb_url_name(self):
         with patch.object(verify, "run", side_effect=self.capability_result):
             verify.verify_capabilities("ffmpeg", "linux_amd64", True)
+
+    def test_missing_hardware_encoder_is_rejected_without_gpu(self):
+        def without_nvenc(command):
+            result = self.capability_result(command)
+            result.stdout = result.stdout.replace(b"h264_nvenc", b"disabled_nvenc")
+            return result
+        with patch.object(verify, "run", side_effect=without_nvenc):
+            with self.assertRaisesRegex(RuntimeError, "h264_nvenc"):
+                verify.verify_capabilities("ffmpeg", "win_x64", True)
+
+    def test_arm64_does_not_require_intel_qsv(self):
+        def without_qsv(command):
+            result = self.capability_result(command)
+            result.stdout = result.stdout.replace(b"qsv", b"not_enabled")
+            return result
+        with patch.object(verify, "run", side_effect=without_qsv):
+            verify.verify_capabilities("ffmpeg", "linux_arm64", True)
+            with self.assertRaisesRegex(RuntimeError, "qsv"):
+                verify.verify_capabilities("ffmpeg", "linux_amd64", True)
+
+    def test_missing_subtitle_filter_is_rejected(self):
+        def without_subtitles(command):
+            result = self.capability_result(command)
+            result.stdout = result.stdout.replace(b"subtitles", b"disabled_subtitles")
+            return result
+        with patch.object(verify, "run", side_effect=without_subtitles):
+            with self.assertRaisesRegex(RuntimeError, "subtitles"):
+                verify.verify_capabilities("ffmpeg", "win_x64", True)
+
+    def test_subtitle_rendering_must_change_pixels(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            font = folder / "input.ttf"
+            font.touch()
+            black = subprocess.CompletedProcess([], 0, bytes(320 * 240 * 3), b"")
+            with patch.object(verify, "run", return_value=black):
+                with self.assertRaisesRegex(RuntimeError, "文字未实际渲染"):
+                    verify.verify_subtitles("ffmpeg", folder, font)
 
     def test_missing_dovi_split_requires_explicit_compatibility_flag(self):
         with patch.object(verify, "run", side_effect=self.capability_result):
