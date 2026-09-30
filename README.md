@@ -92,6 +92,8 @@ Lumora 此前直接 vendored 第三方（jellyfin-ffmpeg 8.1.2）构建，三平
 
 `scripts/patches/` 修正上游版本脚本对 `origin/master` 和当前目录的依赖：固定 commit 的浅克隆只根据源码 `HEAD` 生成构建号，并在 uavs3d 独立构建时显式定位源码仓库。浅克隆计数通常为 1，不表示上游完整历史中的修订序号；实际源码以记录的完整 commit 为准。补丁 SHA256 写入构建记录，安装后立即检查 pkg-config 的 davs2 / xavs2 最低版本。覆盖源码 ref 时若补丁不兼容会直接失败，需要同步更新补丁。
 
+另有 `xavs2-gcc-types.patch` 修正 AEC 线程回调签名、配置参数指针的限定符和 AVX2 intrinsic 的 64 位指针类型，兼容新版 GCC 的严格类型检查。线程回调使用线程池要求的 `void *(*)(void *)` 签名，在函数内部还原编码器指针。xavs2 构建显式启用 `-Werror=incompatible-pointer-types`，使 Linux 的旧版 GCC 也能提前发现同类错误。
+
 已知边界（有意选择，写透明）：
 
 - **8bit 主线**：uavs3d 的 8bit/10bit 是两套编译产物（`COMPILE_10BIT`），本构建取 8bit（网络流通内容主体）；AVS3 10bit 超高清广播源如成需求，改脚本变量重建即可；
@@ -215,6 +217,8 @@ Windows 在 MSYS2 UCRT64 终端安装工作流中列出的软件包，再执行�
 ```bash
 FFMPEG_REF=n9.0.2 JOBS=4 bash scripts/build_media_tools_win.sh
 ```
+
+Windows 的 iconv 来自独立的 libiconv，构建显式链接 `-liconv`，避免关闭自动依赖探测后只检查 libc、最终链接缺少字符集转换符号。Linux 使用 libc 的 iconv 实现。
 
 `JOBS` 限制编译并行度；`WORKDIR` 指定工作根目录，每次创建独立子目录，避免旧对象和 DLL 污染。`DIST` 指定输出目录，两者均可使用相对路径。构建目录会保留供排错，需要时自行清理旧目录。`FFMPEG_COMMIT` / `FFMPEG_VERSION` 由 CI 统一传入，本地通常无需设置。
 

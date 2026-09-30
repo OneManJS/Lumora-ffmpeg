@@ -1,0 +1,27 @@
+diff --git a/source/encoder/encoder.c b/source/encoder/encoder.c
+--- a/source/encoder/encoder.c
++++ b/source/encoder/encoder.c
+@@ -633,4 +633,5 @@
+-static void *encoder_aec_encode_one_frame(xavs2_t *h)
++static void *encoder_aec_encode_one_frame(void *arg)
+ {
++    xavs2_t        *h = arg;
+     aec_t            aec;
+     frame_info_t    *frame = h->frameinfo;
+diff --git a/source/encoder/parameters.c b/source/encoder/parameters.c
+--- a/source/encoder/parameters.c
++++ b/source/encoder/parameters.c
+@@ -531,4 +531,4 @@
+-static char *xavs2_get_configs(int argc, const char * const *argv)
++static char *xavs2_get_configs(int argc, char * const *argv)
+ {
+     const int size_file_max = 1 << 20; // 1MB
+     char item[4096];
+diff --git a/source/common/vec/intrinsic_intra-pred_avx2.c b/source/common/vec/intrinsic_intra-pred_avx2.c
+--- a/source/common/vec/intrinsic_intra-pred_avx2.c
++++ b/source/common/vec/intrinsic_intra-pred_avx2.c
+@@ -47,3 +47,3 @@
+ #ifndef _MSC_VER
+-#define __int64 int64_t
++#define __int64 long long
+ #endif

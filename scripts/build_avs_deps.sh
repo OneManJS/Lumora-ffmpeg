@@ -7,6 +7,12 @@ build_avs2_lib() {
     [[ "$(uname -m)" == x86_64 ]] || extra+=(--disable-asm)
     fetch_pinned "$1" "$2" "$WORKDIR/deps-src/$name"
     git -C "$WORKDIR/deps-src/$name" apply "$ROOT/scripts/patches/avs2-version.patch"
+    if [[ "$name" == xavs2 ]]; then
+        # 上游 C 文件使用 CRLF；忽略补丁上下文中的换行空白差异。
+        git -C "$WORKDIR/deps-src/$name" apply --ignore-space-change \
+            "$ROOT/scripts/patches/xavs2-gcc-types.patch"
+        extra+=(--extra-cflags=-Werror=incompatible-pointer-types)
+    fi
     echo "==> 构建 $name"
     (cd "$WORKDIR/deps-src/$name/build/linux" && \
         ./configure --prefix="$DEPS" "${extra[@]}" && \

@@ -59,8 +59,10 @@ class AvsVersionTests(unittest.TestCase):
                               text=True, encoding="utf-8").stdout.strip()
 
     def fetch(self, script):
+        # Git for Windows 与 MSYS2 Git 混用时也保持补丁上下文的 LF 换行。
+        (self.upstream / ".gitattributes").write_text("*.sh text eol=lf\n", encoding="utf-8")
         (self.upstream / "version.sh").write_text(script, encoding="utf-8", newline="\n")
-        self.git("add", "version.sh", cwd=self.upstream)
+        self.git("add", ".gitattributes", "version.sh", cwd=self.upstream)
         self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
                  "commit", "-qm", "版本脚本测试", cwd=self.upstream)
         commit = self.git("rev-parse", "HEAD", cwd=self.upstream)

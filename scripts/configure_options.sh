@@ -15,7 +15,9 @@ set_configure_options() {
         --enable-zlib --enable-iconv --extra-libs=-lstdc++
     )
     if [[ "$PLATFORM" == win_x64 ]]; then
+        # 关闭自动探测后 FFmpeg 仅尝试 libc iconv，UCRT 需显式链接独立库。
         CONFIGURE_FLAGS+=(--enable-schannel
+            --extra-libs=-liconv
             --extra-cflags="-O3 -fstack-protector-strong"
             --extra-ldflags="-Wl,--dynamicbase,--nxcompat")
     else
