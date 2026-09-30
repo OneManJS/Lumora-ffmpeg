@@ -1,0 +1,4 @@
+dist/
+.tmp-media-tools-build/
+__pycache__/
+*.pyc
