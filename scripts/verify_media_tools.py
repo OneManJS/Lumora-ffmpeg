@@ -43,7 +43,7 @@ def verify_capabilities(ffmpeg, platform, allow_missing_dovi_split):
     expected["decoders"].update({"h264_cuvid", "hevc_cuvid"})
     expected["filters"].update({"hwupload_cuda", "scale_cuda", "hwdownload"})
     if platform.startswith("linux_"):
-        expected["protocols"].update({"smb", "nfs"})
+        expected["protocols"].add("smb")
         expected["hwaccels"].update({"vaapi", "vdpau", "drm"})
         expected["encoders"].update({"h264_vaapi", "hevc_vaapi", "h264_v4l2m2m"})
         expected["filters"].add("scale_vaapi")

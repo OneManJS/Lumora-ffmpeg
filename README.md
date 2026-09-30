@@ -50,7 +50,7 @@ Lumora 此前直接 vendored 第三方（jellyfin-ffmpeg 8.1.2）构建，三平
 | `chromaprint` muxer（`-fp_format raw`） | 片头片尾指纹主路径，缺库时有 PCM 回退（同上） |
 | `pcm_s16le` raw 输出（`-f s16le -ar 2000 -ac 1`） | 指纹通用回退路径（同上） |
 | `bluray:` 协议（libbluray，含 `-playlist`） | ISO/BDMV 原盘（`app/services/media/disc/capability.py` 以 `-protocols` 探测） |
-| `smb` / `nfs` / `sftp` / `rtmp(s)` 协议库 | `.strm` 透传协议白名单（`streaming/__init__.py`），缺失时仅对应源类型失败 |
+| `smb`（Linux）/ `sftp` / `rtmp(s)` 协议库 | 远程媒体访问；上游 FFmpeg 不提供 `nfs://` 协议，NFS 共享需先由操作系统挂载，再通过本地文件路径访问 |
 | `http(s)` 协议 + reconnect / `-user_agent` | 网盘直链远程源（`transcoding.py`、`cloud_drive/analysis_usage.py`） |
 | `libdav1d` | AV1 输入解码（原生解码器过慢） |
 | `libx265` encoder（10/12bit） | HEVC 高效输出，HDR/DoVi 管线载体（前瞻需求） |
@@ -141,7 +141,7 @@ AV1 硬件编码、HEVC 10bit 等能力随 GPU 代际变化，不能仅凭编码
     --enable-libbluray \
     --enable-chromaprint \
     --enable-libass --enable-libfreetype --enable-libfontconfig --enable-libharfbuzz --enable-libfribidi \
-    --enable-libsmbclient --enable-libnfs --enable-libssh --enable-librtmp \
+    --enable-libsmbclient --enable-libssh --enable-librtmp \
     --enable-gnutls --enable-zlib --enable-iconv \
     --extra-cflags="-O3 -fstack-protector-strong -D_FORTIFY_SOURCE=2" \
     --extra-ldflags="-Wl,-z,relro,-z,now" --extra-libs="-lstdc++"
@@ -150,6 +150,8 @@ AV1 硬件编码、HEVC 10bit 等能力随 GPU 代际变化，不能仅凭编码
 要点：
 
 - amd64 另外传入 `--enable-libvpl` 并安装 `libvpl-dev`；arm64 不启用 QSV。完整平台参数由 `scripts/build_hardware.sh` 提供。
+- 参数定义集中在 `scripts/configure_options.sh`。获取 FFmpeg 源码后，先按实际参数执行 `configure <参数> --help`，通过后才编译 AVS/NVIDIA 依赖；未知选项会提前失败，并写入 `dist/logs.<平台>/configure-options.log`。该步骤检查参数名，不代替后续的编译器和依赖探测。
+- NFS 由宿主机挂载，并将挂载目录映射进容器；传给 FFmpeg 的是容器内本地路径。官方源码没有 `--enable-libnfs`，无需安装 `libnfs-dev` 或 `libnfs13`；需要挂载 NFS 的宿主机可另装 `nfs-common`。
 - `--disable-autodetect`：可复现性的关键。外部库不再按环境自动探测，只有上面显式 `--enable` 的一组进入链接；`zlib`/`iconv` 也因此显式声明（MKV 压缩头、字幕字符集转换依赖）。
 - `--enable-gpl --enable-version3`：Linux 的 `libsmbclient` 需要 GPLv3，两个平台统一按 GPLv3 构建，**不得再以 LGPL 形态再分发**。发布二进制时应满足对应许可证及源码提供义务。
 - HTTPS 显式启用 GnuTLS；仅启用 `librtmp` 或安装 TLS 库不会在 `--disable-autodetect` 下自动提供 HTTPS。
@@ -162,7 +164,7 @@ AV1 硬件编码、HEVC 10bit 等能力随 GPU 代际变化，不能仅凭编码
 
 同 Linux 主体（含 libx265 / libsvtav1 / libzimg、DoVi bsf 与国产 AVS 三件套），差异：
 
-- 去掉 `libsmbclient` / `libnfs` / `librtmp`（Windows 本地开发经 UNC 路径 `\\server\share` 即可访问共享；`.strm` 中 smb/nfs 协议在 Windows 开发机上不支持，属已知取舍）；
+- Windows 不链接 `libsmbclient` / `librtmp`，SMB 共享可经 UNC 文件路径访问；NFS 与 Linux 一样，需系统先挂载再按文件路径读取；
 - 链接加固换成 PE 形态：`-Wl,--dynamicbase,--nxcompat`（ASLR / DEP）；
 - HTTPS/TLS 显式启用 Windows SChannel；RTMP/RTMPS 使用 FFmpeg 内置实现，不依赖 `librtmp`；
 - 使用 QSV/AMF/NVIDIA 和 Windows D3D/DXVA 后端，不链接 Linux VAAPI/VDPAU/DRM；显卡驱动仍由操作系统安装；
@@ -248,7 +250,7 @@ python3 scripts/verify_hardware.py --backend amf
    ```dockerfile
    apt-get install -y --no-install-recommends ca-certificates curl nginx tini tzdata util-linux \
        libx264-164 libx265-199 libsvtav1enc1 libzimg2 libdav1d6 libbluray2 libchromaprint1 \
-       libsmbclient libnfs13 libssh-4 librtmp1 libgnutls30 zlib1g libstdc++6 \
+       libsmbclient libssh-4 librtmp1 libgnutls30 zlib1g libstdc++6 \
        libva2 libva-drm2 libvdpau1 libdrm2 \
        libass9 libfreetype6 libfontconfig1 libharfbuzz0b libfribidi0 fontconfig \
        fonts-dejavu-core fonts-noto-cjk
@@ -281,7 +283,7 @@ python3 scripts/verify_hardware.py --backend amf
 
 - **GPLv3**：Linux 的 libsmbclient 要求 `--enable-version3`，两个平台统一使用 GPLv3；
 - **发行版锁定**：Linux 产物绑定 bookworm 一代；
-- **Windows 无 smb/nfs 协议**：共享文件可经 UNC 访问；RTMP/RTMPS 保留内置实现；
+- **NFS 使用系统挂载**：两平台均不直接支持 `nfs://`；Windows 另外不提供 `smb://`，共享文件可经 UNC 访问；RTMP/RTMPS 保留内置实现；
 - **AVS 库为小众老库**：davs2/xavs2/uavs3d 上游更新频率低、无发行版安全通道，CVE 响应只能靠手动 bump pin（风险敞口小于主流库，且静态链入无运行时替换歧义）；arm64 上 AVS2 走 C 实现性能有限；AVS3 仅 8bit、仅解码；
 - **自动同步会跟随 major 跳跃**：9.x → 10.x 时行为差异（如 9.0 的 tls_verify 类默认值变化）直接进入产物，依赖验收门兜底，重大版本建议先 dispatch 试构建；
 - **arm64 依赖托管 runner**：私有仓库场景需 QEMU 或交叉编译兜底；

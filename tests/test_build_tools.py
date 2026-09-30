@@ -78,7 +78,7 @@ class VerificationTests(unittest.TestCase):
             "-decoders": "libdav1d libdavs2 libuavs3d h264_cuvid hevc_cuvid h264_qsv hevc_qsv",
             "-filters": "scale thumbnail silencedetect zscale tonemap subtitles ass drawtext hwupload_cuda scale_cuda hwdownload scale_vaapi scale_qsv",
             "-muxers": "mp4 matroska hls mpegts image2pipe webvtt chromaprint s16le null avs2",
-            "-protocols": "file pipe http https tls bluray sftp rtmp rtmps smb nfs",
+            "-protocols": "file pipe http https tls bluray sftp rtmp rtmps smb",
             "-bsfs": "dovi_rpu",
             "-hwaccels": "cuda vaapi vdpau drm qsv dxva2 d3d11va d3d12va",
         }
@@ -94,6 +94,12 @@ class VerificationTests(unittest.TestCase):
     def test_linux_protocol_uses_smb_url_name(self):
         with patch.object(verify, "run", side_effect=self.capability_result):
             verify.verify_capabilities("ffmpeg", "linux_amd64", True)
+
+    def test_linux_platforms_pass_without_nonexistent_nfs_protocol(self):
+        with patch.object(verify, "run", side_effect=self.capability_result):
+            for platform in ("linux_amd64", "linux_arm64"):
+                with self.subTest(platform=platform):
+                    verify.verify_capabilities("ffmpeg", platform, True)
 
     def test_missing_hardware_encoder_is_rejected_without_gpu(self):
         def without_nvenc(command):

@@ -7,7 +7,9 @@ build_hardware() {
     make -C "$WORKDIR/deps-src/nv-codec-headers" PREFIX="$DEPS" install
     export PKG_CONFIG_PATH="$DEPS/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     pkg-config --exists ffnvcodec
+}
 
+set_hardware_flags() {
     HARDWARE_FLAGS=(--enable-ffnvcodec --enable-nvenc --enable-nvdec --enable-cuvid --enable-cuda-llvm)
     case "$PLATFORM" in
         linux_amd64)

@@ -11,26 +11,19 @@ source "$ROOT/scripts/build_common.sh"
 source "$ROOT/scripts/build_avs_deps.sh"
 # shellcheck source=scripts/build_hardware.sh
 source "$ROOT/scripts/build_hardware.sh"
+# shellcheck source=scripts/configure_options.sh
+source "$ROOT/scripts/configure_options.sh"
 [[ "${MSYSTEM:-}" == UCRT64 && "$(uname -m)" == x86_64 ]] || fail "需要 MSYS2 UCRT64 x64 环境"
 init_build
 PYTHON=/ucrt64/bin/python.exe
 fetch_ffmpeg
+set_configure_options
+check_configure_options
 build_avs_deps
 build_hardware
 
 cd "$WORKDIR/ffmpeg"
-./configure \
-    --prefix="$WORKDIR/stage" \
-    --disable-autodetect --disable-shared --enable-static \
-    --disable-debug --disable-doc --disable-ffplay \
-    "${HARDWARE_FLAGS[@]}" --disable-vulkan --disable-opencl \
-    --enable-gpl --enable-version3 --enable-libx264 --enable-libx265 --enable-libsvtav1 \
-    --enable-libzimg --enable-libdavs2 --enable-libxavs2 --enable-libuavs3d \
-    --enable-libdav1d --enable-libbluray --enable-chromaprint --enable-libssh \
-    --enable-libass --enable-libfreetype --enable-libfontconfig --enable-libharfbuzz --enable-libfribidi \
-    --enable-schannel --enable-zlib --enable-iconv \
-    --extra-cflags="-O3 -fstack-protector-strong" \
-    --extra-ldflags="-Wl,--dynamicbase,--nxcompat" --extra-libs="-lstdc++"
+./configure "${CONFIGURE_FLAGS[@]}"
 make -j"$JOBS"
 make install
 FF="$WORKDIR/stage/bin/ffmpeg.exe"
