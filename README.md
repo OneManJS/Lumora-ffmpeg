@@ -92,6 +92,10 @@ Lumora 此前直接 vendored 第三方（jellyfin-ffmpeg 8.1.2）构建，三平
 
 `scripts/patches/` 修正上游版本脚本对 `origin/master` 和当前目录的依赖：固定 commit 的浅克隆只根据源码 `HEAD` 生成构建号，并在 uavs3d 独立构建时显式定位源码仓库。浅克隆计数通常为 1，不表示上游完整历史中的修订序号；实际源码以记录的完整 commit 为准。补丁 SHA256 写入构建记录，安装后立即检查 pkg-config 的 davs2 / xavs2 最低版本。覆盖源码 ref 时若补丁不兼容会直接失败，需要同步更新补丁。
 
+AVS2 解码同时支持 **8bit 与 10bit**，继续使用 `-c:v libdavs2`，也可由 FFmpeg 自动选择。上游默认关闭 10bit，直接使用旧构建会出现 `Un-supported bit-depth 10`。`davs2-multidepth.patch` 启用 10bit C 实现，修正像素指针、内存对齐及输出位深，并把可变全局位深改为各后端的编译期常量；x86_64 GNU 构建按调用方 16 字节栈对齐的 ABI 重新对齐，避免 AVX 栈访问崩溃。构建分别生成 8bit/10bit 静态库，隔离全局符号与 Windows COMDAT 引用，再由 `davs2_dispatch.c` 根据序列头分发；8bit 保留原有 x86 汇编优化，10bit 使用 C 实现，性能受 CPU 限制。两个后端都静态链入单个 FFmpeg/ffprobe，不增加运行时 DLL。
+
+构建验收生成三帧无残差中性灰 AVS2 样本，将测试序列头扩展为 Main10 后，检查 10bit 输出是否恰为三帧 512 中值像素，同时验证 8bit 的 128 中值像素及同进程混合解码。退出码为零但没有输出帧也会失败。该合成验收覆盖位深选择和像素存储，不能替代复杂广播码流的内容一致性验证；本地另以真实 4K 50fps AVS2 10bit TS 检查解码。单个解码器生命周期内不支持改变编码位深，需重新打开；不支持 12bit。AVS2 10bit 解码不等同于 HDR Vivid 动态元数据应用，HDR 转 SDR 时仍需正确的色彩标记和色调映射。
+
 另有 `xavs2-gcc-types.patch` 修正 AEC 线程回调签名、配置参数指针的限定符和 AVX2 intrinsic 的 64 位指针类型，兼容新版 GCC 的严格类型检查。线程回调使用线程池要求的 `void *(*)(void *)` 签名，在函数内部还原编码器指针。xavs2 构建显式启用 `-Werror=incompatible-pointer-types`，使 Linux 的旧版 GCC 也能提前发现同类错误。
 
 已知边界（有意选择，写透明）：

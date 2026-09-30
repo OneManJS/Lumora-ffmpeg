@@ -33,6 +33,8 @@ build_placebo() {
     meson install -C "$WORKDIR/build-libplacebo"
     export PKG_CONFIG_PATH="$DEPS/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     # glslang/SPIRV 静态库有循环引用，链接器需在组内重复扫描。
+    # 自建库目录必须优先于系统目录，避免同名 libplacebo 被错误替换。
     CONFIGURE_FLAGS+=(--extra-cflags="-I$DEPS/include"
+        --extra-ldflags="-L$DEPS/lib"
         --extra-libs="-Wl,--start-group $(pkg-config --static --libs libplacebo) -Wl,--end-group")
 }

@@ -1,0 +1,114 @@
+--- a/build/linux/configure
++++ b/build/linux/configure
+@@ -466,7 +466,7 @@
+             if [ "$bit_depth" -lt "8" -o "$bit_depth" -gt "10" ]; then
+                 echo "Supplied bit depth must be in range [8,10]."
+                 exit 1
+-            elif [[ "$bit_depth" = "9" || "$bit_depth" = "10" ]]; then
++            elif [[ "$bit_depth" = "9" ]]; then
+                 echo "BitDepth $bit_depth not supported currently."
+                 exit 1
+             fi
+@@ -833,6 +833,10 @@
+     if cc_check '' -mpreferred-stack-boundary=5 ; then
+         CFLAGS="$CFLAGS -mpreferred-stack-boundary=5"
+         stack_alignment=32
++        # x86_64 调用方只保证 16 字节对齐，按真实 ABI 重新对齐栈。
++        if [ "$ARCH" = X86_64 ] && cc_check '' -mincoming-stack-boundary=4 ; then
++            CFLAGS="$CFLAGS -mincoming-stack-boundary=4"
++        fi
+     elif [ $stack_alignment -lt 16 ] && cc_check '' -mpreferred-stack-boundary=4 ; then
+         CFLAGS="$CFLAGS -mpreferred-stack-boundary=4"
+         stack_alignment=16
+--- a/source/common/decoder.cc
++++ b/source/common/decoder.cc
+@@ -964,6 +964,6 @@
+-        pic->planes[0]  = frame->planes[0];
+-        pic->planes[1]  = frame->planes[1];
+-        pic->planes[2]  = frame->planes[2];
++        pic->planes[0]  = (uint8_t *)frame->planes[0];
++        pic->planes[1]  = (uint8_t *)frame->planes[1];
++        pic->planes[2]  = (uint8_t *)frame->planes[2];
+         pic->strides[0] = frame->i_stride[0] * num_bytes_per_sample;
+         pic->strides[1] = frame->i_stride[1] * num_bytes_per_sample;
+         pic->strides[2] = frame->i_stride[2] * num_bytes_per_sample;
+--- a/source/common/frame.cc
++++ b/source/common/frame.cc
+@@ -288,9 +288,11 @@
+     frame->planes[0] += frame->i_stride[0] * (AVS2_PAD    ) + (AVS2_PAD    );
+     frame->planes[1] += frame->i_stride[1] * (AVS2_PAD / 2) + (AVS2_PAD / 2);
+     frame->planes[2] += frame->i_stride[2] * (AVS2_PAD / 2) + (AVS2_PAD / 2);
+-    ALIGN_POINTER(frame->planes[0]);
+-    ALIGN_POINTER(frame->planes[1]);
+-    ALIGN_POINTER(frame->planes[2]);
++    for (int plane = 0; plane < 3; ++plane) {
++        uintptr_t address = (uintptr_t)frame->planes[plane];
++        frame->planes[plane] = (pel_t *)((address + CACHE_LINE_SIZE - 1) &
++                                        ~(uintptr_t)(CACHE_LINE_SIZE - 1));
++    }
+ 
+     if (b_extra) {
+         /* M2, reference index buffer (in SPU) */
+--- a/source/common/common.h
++++ b/source/common/common.h
+@@ -1193,15 +1193,9 @@
+  * global variables
+  * ===========================================================================
+  */
+-#if HIGH_BIT_DEPTH
+-extern int max_pel_value;
+-extern int g_bit_depth;
+-extern int g_dc_value;
+-#else
+-static const int g_bit_depth   = BIT_DEPTH;
++static const int g_bit_depth = BIT_DEPTH;
+ static const int max_pel_value = (1 << BIT_DEPTH) - 1;
+-static const pel_t g_dc_value    = 128;
+-#endif
++static const pel_t g_dc_value = 1 << (BIT_DEPTH - 1);
+ 
+ /**
+  * ===========================================================================
+--- a/source/common/common.cc
++++ b/source/common/common.cc
+@@ -50,11 +50,7 @@
+  * global variables
+  * ===========================================================================
+  */
+-#if HIGH_BIT_DEPTH
+-int max_pel_value = 255;
+-int g_bit_depth   = 8;
+-int g_dc_value    = 128;
+-#endif
++
+ 
+ 
+ /**
+--- a/source/common/header.cc
++++ b/source/common/header.cc
+@@ -170,7 +170,7 @@
+     }
+ 
+     seq->head.internal_bit_depth   = 6 + (seq->encoding_precision << 1);
+-    seq->head.output_bit_depth     = 6 + (seq->encoding_precision << 1);
++    seq->head.output_bit_depth     = 6 + (seq->sample_precision << 1);
+     seq->head.bytes_per_sample     = seq->head.output_bit_depth > 8 ? 2 : 1;
+ 
+     /*  */
+@@ -1056,16 +1056,10 @@
+         h->sample_bit_depth = 6 + (seq->encoding_precision << 1);
+     }
+ 
+-#if HIGH_BIT_DEPTH
+-    g_bit_depth   = h->sample_bit_depth;
+-    max_pel_value = (1 << g_bit_depth) - 1;
+-    g_dc_value    = 1 << (g_bit_depth - 1);
+-#else
+     if (g_bit_depth != h->sample_bit_depth) {
+         davs2_log(h, DAVS2_LOG_ERROR, "Un-supported bit-depth %d in this version.\n", h->sample_bit_depth);
+         return -1;
+     }
+-#endif
+ 
+     memcpy(h->wq.seq_wq_matrix, seq->seq_wq_matrix, 2 * 64 * sizeof(int16_t)); /* weighting quantization matrix */
+     memcpy(&h->seq_info, seq, sizeof(davs2_seq_t));

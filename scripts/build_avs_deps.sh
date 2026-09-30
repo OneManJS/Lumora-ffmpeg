@@ -7,6 +7,10 @@ build_avs2_lib() {
     [[ "$(uname -m)" == x86_64 ]] || extra+=(--disable-asm)
     fetch_pinned "$1" "$2" "$WORKDIR/deps-src/$name"
     git -C "$WORKDIR/deps-src/$name" apply "$ROOT/scripts/patches/avs2-version.patch"
+    if [[ "$name" == davs2 ]]; then
+        git -C "$WORKDIR/deps-src/$name" apply --ignore-space-change \
+            "$ROOT/scripts/patches/davs2-multidepth.patch"
+    fi
     if [[ "$name" == xavs2 ]]; then
         # 上游 C 文件使用 CRLF；忽略补丁上下文中的换行空白差异。
         git -C "$WORKDIR/deps-src/$name" apply --ignore-space-change \
@@ -17,6 +21,31 @@ build_avs2_lib() {
     (cd "$WORKDIR/deps-src/$name/build/linux" && \
         ./configure --prefix="$DEPS" "${extra[@]}" && \
         make -j"$JOBS" && make install)
+    if [[ "$name" == davs2 ]]; then
+        build_davs2_multidepth
+    fi
+}
+
+build_davs2_multidepth() {
+    local source="$WORKDIR/deps-src/davs2"
+    local high="$WORKDIR/deps-src/davs2-10bit"
+    local python="${PYTHON:-python3}"
+    "$python" "$ROOT/scripts/namespace_davs2.py" "$DEPS/lib/libdavs2.a" \
+        "$DEPS/lib/libdavs2_8bit.a" lumora8_
+    cp -a "$source" "$high"
+    echo "==> 构建 davs2 10bit C 实现，保留独立的 8bit 汇编实现"
+    (cd "$high/build/linux" && make distclean && \
+        ./configure --prefix="$DEPS" --enable-pic --bit-depth=10 --disable-asm && \
+        make -j"$JOBS" lib-static)
+    "$python" "$ROOT/scripts/namespace_davs2.py" "$high/build/linux/libdavs2.a" \
+        "$DEPS/lib/libdavs2_10bit.a" lumora10_
+    "${CC:-cc}" -std=c99 -O3 -fPIC -Wall -Wextra -Werror -I"$DEPS/include" \
+        -c "$ROOT/scripts/davs2_dispatch.c" -o "$WORKDIR/davs2_dispatch.o"
+    # 重新建立入口归档，不能保留原归档的 8bit 对象。
+    "${AR:-ar}" rcs "$WORKDIR/libdavs2-dispatch.a" "$WORKDIR/davs2_dispatch.o"
+    cp "$WORKDIR/libdavs2-dispatch.a" "$DEPS/lib/libdavs2.a"
+    sed -i 's/-ldavs2 /-ldavs2 -ldavs2_8bit -ldavs2_10bit /' \
+        "$DEPS/lib/pkgconfig/davs2.pc"
 }
 
 build_avs_deps() {

@@ -89,6 +89,9 @@ write_build_info() {
         printf 'platform=%s\nversion=%s\nffmpeg_ref=%s\nffmpeg_commit=%s\n' \
             "$PLATFORM" "$VERSION" "$FFMPEG_REF" "$FFMPEG_SHA"
         printf 'build_scripts_commit=%s\n' "${GITHUB_SHA:-unknown}"
+        printf 'davs2_decoding_bit_depths=8,10\ndavs2_10bit_implementation=C\n'
+        printf '\nAVS2 分发与符号隔离实现 SHA256：\n'
+        (cd "$ROOT" && sha256sum scripts/davs2_dispatch.c scripts/namespace_davs2.py)
         printf '\n源码补丁 SHA256：\n'
         (cd "$ROOT" && sha256sum scripts/patches/*.patch)
         for name in davs2 xavs2 uavs3d nv-codec-headers libplacebo vulkan-headers spirv-headers; do
@@ -97,6 +100,8 @@ write_build_info() {
             printf '%s_repo=%s\n' "$name" "$(git -C "$WORKDIR/deps-src/$name" remote get-url origin)"
         done
         printf 'ffmpeg_repo=%s\n' "$(git -C "$WORKDIR/ffmpeg" remote get-url origin)"
+        printf '\n实际链接参数：\n'
+        sed -n '/^LDFLAGS=/p; /^EXTRALIBS-avcodec=/p' "$WORKDIR/ffmpeg/ffbuild/config.mak"
         printf '\n编译器：\n'
         cc --version
         printf '\n运行依赖：\n'

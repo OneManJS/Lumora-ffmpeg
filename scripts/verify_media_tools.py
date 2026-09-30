@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -94,6 +95,58 @@ def verify_subtitles(ffmpeg, folder, font=None):
         require(len(rendered) == len(plain) and rendered != plain, f"文字未实际渲染：{expression}")
 
 
+def avs2_gray_main10(data):
+    """将无残差中性灰测试流的序列头改为 Main10，预测中值由 128 变为 512。
+
+    仅用于本脚本生成的恒定灰色全帧内样本，不能用于转换普通 AVS2 视频。
+    """
+    starts = [match.start() for match in re.finditer(b"\x00\x00\x01", data)] + [len(data)]
+    parts = []
+    headers = 0
+    for start, end in zip(starts, starts[1:]):
+        part = data[start:end]
+        if len(part) > 4 and part[3] == 0xb0:
+            bits = "".join(f"{value:08b}" for value in part[4:])
+            require(len(bits) >= 51 and bits[:8] == "00100000" and bits[48:51] == "001",
+                    "AVS2 灰色测试样本序列头异常")
+            bits = "00100010" + bits[8:48] + "010010" + bits[51:]
+            bits += "0" * (-len(bits) % 8)
+            part = part[:4] + bytes(int(bits[i:i + 8], 2) for i in range(0, len(bits), 8))
+            headers += 1
+        parts.append(part)
+    require(headers > 0, "AVS2 灰色测试样本缺少序列头")
+    return b"".join(parts)
+
+
+def verify_avs2_depths(ffmpeg, folder):
+    """验证真实帧数、逐像素结果和同进程混合位深，不以退出码代替解码成功。"""
+    base = [ffmpeg, "-nostdin", "-hide_banner", "-v", "error", "-y"]
+    gray8 = bytes([128]) * (64 * 64 * 3 // 2) * 3
+    gray10 = b"\x00\x02" * (64 * 64 * 3 // 2) * 3
+    raw = folder / "gray.yuv"
+    raw.write_bytes(gray8)
+    stream8 = folder / "gray8.avs2"
+    stream10 = folder / "gray10.avs2"
+    run(base + ["-f", "rawvideo", "-pixel_format", "yuv420p", "-video_size", "64x64",
+                "-framerate", "25", "-i", str(raw), "-c:v", "libxavs2", "-threads", "1",
+                "-xavs2-params", "IntraPeriodMin=1:IntraPeriodMax=1", "-f", "avs2", str(stream8)])
+    stream10.write_bytes(avs2_gray_main10(stream8.read_bytes()))
+    for depth, stream, pixel, expected in (
+        (8, stream8, "yuv420p", gray8), (10, stream10, "yuv420p10le", gray10)
+    ):
+        result = run(base + ["-threads", "2", "-i", str(stream), "-map", "0:v:0",
+                             "-pix_fmt", pixel, "-f", "rawvideo", "pipe:1"])
+        require(result.stdout == expected, f"AVS2 {depth}bit 解码帧数或像素不正确")
+        require(b"error" not in result.stderr.lower(), f"AVS2 {depth}bit 测试流出现解码错误")
+    # 两个后端同时活动时也必须与各自的独立解码结果一致。
+    mixed8, mixed10 = folder / "mixed8.yuv", folder / "mixed10.yuv"
+    run(base + ["-threads", "2", "-i", str(stream8), "-threads", "2", "-i", str(stream10),
+                "-map", "0:v:0", "-pix_fmt", "yuv420p", "-f", "rawvideo", str(mixed8),
+                "-map", "1:v:0", "-pix_fmt", "yuv420p10le", "-f", "rawvideo", str(mixed10)])
+    require(mixed8.read_bytes() == gray8 and mixed10.read_bytes() == gray10,
+            "AVS2 混合位深解码发生像素串扰")
+
+
 def verify_workflows(ffmpeg, ffprobe, folder):
     base = [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-filter_threads", "1"]
     video = ["-f", "lavfi", "-i", "testsrc2=size=320x240:rate=12:duration=1"]
@@ -166,6 +219,8 @@ def verify_workflows(ffmpeg, ffprobe, folder):
     check_video(folder / "av1.mkv", "av1", decoder="libdav1d")
     encode(video + ["-c:v", "libxavs2", "-threads", "2", "-frames:v", "3", "-f", "avs2", folder / "out.avs2"])
     check_video(folder / "out.avs2", "avs2", decoder="libdavs2")
+    print("==> 验证 AVS2 8bit/10bit 完整像素及同进程混合解码", flush=True)
+    verify_avs2_depths(ffmpeg, folder)
 
 
 def main():
