@@ -64,6 +64,8 @@ class ConfigureOptionsTests(unittest.TestCase):
                 log = self.log.read_text(encoding="utf-8")
                 self.assertIn("[--extra-libs=-lstdc++]", log)
                 self.assertEqual("[--extra-libs=-liconv]" in log, platform == "win_x64")
+                self.assertEqual("[--pkg-config-flags=--static]" in log, platform == "win_x64")
+                self.assertEqual("-static-libgcc" in log, platform == "win_x64")
 
     def test_unknown_option_fails_before_dependency_compilation(self):
         result = self.run_check(

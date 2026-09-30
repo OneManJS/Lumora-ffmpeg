@@ -162,6 +162,10 @@ jobs:
             mingw-w64-ucrt-x86_64-python
             mingw-w64-ucrt-x86_64-libvpl
             mingw-w64-ucrt-x86_64-libplacebo
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-python-jinja
+            mingw-w64-ucrt-x86_64-fast_float
+            mingw-w64-ucrt-x86_64-glslang
             mingw-w64-ucrt-x86_64-vulkan-headers
             mingw-w64-ucrt-x86_64-vulkan-loader
             mingw-w64-ucrt-x86_64-shaderc

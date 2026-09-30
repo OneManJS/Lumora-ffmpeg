@@ -120,18 +120,17 @@ verify_tools() {
 
 package_tools() {
     local suffix="" tool archive
-    local extra=()
     if [[ "$PLATFORM" == win_x64 ]]; then
         suffix=".exe"
-        extra=("$WORKDIR/stage/bin/"*.dll)
     fi
     write_build_info
     for tool in ffmpeg ffprobe; do
         archive="$DIST/${tool}_${VERSION}_${PLATFORM}.zip"
         # zip 默认更新旧包，必须先移除同名包以免保留历史文件。
         rm -f "$archive"
-        zip -q -j "$archive" "$WORKDIR/stage/bin/$tool$suffix" "${extra[@]}"
+        zip -q -j "$archive" "$WORKDIR/stage/bin/$tool$suffix"
         unzip -tq "$archive"
+        [[ "$(unzip -Z -1 "$archive")" == "$tool$suffix" ]] || fail "压缩包必须只包含 $tool$suffix"
     done
     (cd "$DIST" && sha256sum "ffmpeg_${VERSION}_${PLATFORM}.zip" \
         "ffprobe_${VERSION}_${PLATFORM}.zip" "config.$PLATFORM.log" \

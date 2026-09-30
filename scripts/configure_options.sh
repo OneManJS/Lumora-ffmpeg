@@ -17,9 +17,10 @@ set_configure_options() {
     if [[ "$PLATFORM" == win_x64 ]]; then
         # 关闭自动探测后 FFmpeg 仅尝试 libc iconv，UCRT 需显式链接独立库。
         CONFIGURE_FLAGS+=(--enable-schannel
+            --pkg-config-flags=--static
             --extra-libs=-liconv
-            --extra-cflags="-O3 -fstack-protector-strong"
-            --extra-ldflags="-Wl,--dynamicbase,--nxcompat")
+            --extra-cflags="-O3 -fstack-protector-strong -DLIBSSH_STATIC -DCHROMAPRINT_NODLL"
+            --extra-ldflags="-static -static-libgcc -static-libstdc++ -Wl,--dynamicbase,--nxcompat")
     else
         CONFIGURE_FLAGS+=(--enable-libsmbclient --enable-librtmp --enable-gnutls
             --extra-cflags="-O3 -fstack-protector-strong -D_FORTIFY_SOURCE=2"

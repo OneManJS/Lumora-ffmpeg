@@ -2,14 +2,14 @@
 
 [Lumora（拾光 · Lumora）](../Lumora) 专用的 ffmpeg / ffprobe 自建发行版：以 GitHub Actions 从上游官方源码按需构建，在**性能、能力、安全**三者间取平衡，产物布局与 Lumora 的 `media-tools/` vendored zip 约定兼容。
 
-- 产物平台：`linux_amd64`、`linux_arm64`（debian bookworm 动态链接）、`win_x64`（MSYS2 UCRT64，自包含 dll）
+- 产物平台：`linux_amd64`、`linux_arm64`（debian bookworm 动态链接）、`win_x64`（MSYS2 UCRT64，单文件 EXE）
 - 构建入口：`.github/workflows/build.yml`（手动 dispatch 可选发布 Release；**每周一自动检查并同步上游最新稳定版**），默认基于 **FFmpeg 9.x**（含 `dovi_split`）
 - 构建脚本：`scripts/build_media_tools.sh`（Linux）、`scripts/build_media_tools_win.sh`（Windows）
 - 硬件加速：NVIDIA NVENC/NVDEC + CUDA；Linux VAAPI/VDPAU/DRM/V4L2 M2M；x64 Intel QSV；Windows AMF/DXVA2/D3D11VA/D3D12VA
 - 字幕：WebVTT 输出、libass 的 SRT/ASS/SSA 烧录、FreeType/HarfBuzz 的 drawtext，支持字体发现与文字整形
 - 高级编码：HEVC（libx265）、AV1（libsvtav1）、HDR/DoVi 管线（libzimg + `zscale`/`tonemap`、libplacebo/Vulkan Dolby Vision 应用、`dovi_rpu`/`dovi_split`）
 - 国产编码：AVS2 编/解码（libxavs2 / libdavs2）、AVS3 解码（libuavs3d），源码编译静态链入
-- 体积以实际 Release 为准：保留内置解码器和滤镜，Windows 还包含动态依赖，不承诺固定的压缩包大小
+- 体积以实际 Release 为准：保留内置解码器和滤镜，Windows 将第三方依赖静态链入各自 EXE，不承诺固定的压缩包大小
 
 ## 1. 背景与动机
 
@@ -75,7 +75,7 @@ Lumora 此前直接 vendored 第三方（jellyfin-ffmpeg 8.1.2）构建，三平
 | HEVC / AV1 高效输出 | libx265（广播级压缩效率）、libsvtav1（当前最快的生产级 AV1 编码器） |
 | Atmos / TrueHD / DTS:X | 解码器原生包含；对象元数据随 `-c copy` 直通完整保留，无需专门编码器 |
 
-边界：本构建不提供 dovi_tool 命令行工具；它的 RPU 编辑/转换不能代替 Profile 5 像素的色彩转换。`libplacebo` 的 Dolby Vision 应用需要可用 Vulkan 设备（GPU 驱动，或支持所需特性的软件 Vulkan 实现），无 Vulkan 时不能退回普通 scale 冒充正确封面。Windows 的 libplacebo 软件包可能传递依赖 libdovi DLL，由依赖收集器一并打包。`libfdk-aac` 因需 `--enable-nonfree`（产物不可再分发）不启用。
+边界：本构建不提供 dovi_tool 命令行工具；它的 RPU 编辑/转换不能代替 Profile 5 像素的色彩转换。`libplacebo` 的 Dolby Vision 应用需要可用 Vulkan 设备（GPU 驱动，或支持所需特性的软件 Vulkan 实现），无 Vulkan 时不能退回普通 scale 冒充正确封面。两平台从固定源码静态链接 libplacebo，使用 FFmpeg 解码出的 RPU，不依赖 libdovi DLL。`libfdk-aac` 因需 `--enable-nonfree`（产物不可再分发）不启用。
 
 版本提示：FFmpeg 9 起对 https 源默认开启 TLS 证书校验（`tls_verify=1`），使用自签证书的媒体源会失败；主流网盘/CDN 直链不受影响。若必须回退 8.x（无 `dovi_split`），dispatch 时改 `ffmpeg_ref` 即可，验收门按源码中是否存在 `dovi_split` 实现决定该检查项，不依赖可变的版本字符串。
 
@@ -172,14 +172,16 @@ AV1 硬件编码、HEVC 10bit 等能力随 GPU 代际变化，不能仅凭编码
 - 链接加固换成 PE 形态：`-Wl,--dynamicbase,--nxcompat`（ASLR / DEP）；
 - HTTPS/TLS 显式启用 Windows SChannel；RTMP/RTMPS 使用 FFmpeg 内置实现，不依赖 `librtmp`；
 - 使用 QSV/AMF/NVIDIA 和 Windows D3D/DXVA 后端，不链接 Linux VAAPI/VDPAU/DRM；显卡驱动仍由操作系统安装；
-- 使用 `objdump` 的 PE 导入表递归收集 UCRT64 DLL，遍历至完整闭包；缺失 DLL 或意外依赖 MSYS/Cygwin 时构建失败。验收时从 PATH 移除 UCRT64，确认程序使用随包 DLL，两个 zip 均包含完整依赖。
+- 使用 `--pkg-config-flags=--static` 和 `-static` 将第三方依赖及 GCC/C++ 运行库链入 EXE。libplacebo 单独静态构建，不直接链接 Vulkan loader，由 FFmpeg 在需要时加载系统显卡驱动提供的 `vulkan-1.dll`。
+- `verify_windows_static.py` 检查 PE 导入表，只允许明确列出的 Windows 系统组件，非系统 DLL 依赖会阻止打包。验收从 PATH 移除 UCRT64，各 ZIP 只能包含一个 EXE，不使用启动时释放 DLL 的自解压包装。
+- `prepare_windows_static.py` 仅在独立构建目录修正 MSYS2 静态 pkg-config 元数据（x265 的共享 GCC 运行库和 libssh 的私有依赖），不修改系统包。libplacebo 的 Python 3.14 兼容补丁纳入审计。
 
 ### 4.3 产物布局
 
 ```
 dist/
 ├── ffmpeg_<版本>_<平台>.zip     # Linux：平铺单文件 ffmpeg（对齐 Dockerfile `unzip -p ... ffmpeg`）
-├── ffprobe_<版本>_<平台>.zip    # Windows：exe + 全部运行 dll，两个 zip 各自自包含
+├── ffprobe_<版本>_<平台>.zip    # Windows：各 ZIP 只有对应的 ffmpeg.exe 或 ffprobe.exe，无附带 DLL
 ├── SHA256SUMS.<平台>.txt
 ├── config.<平台>.log            # configure 全量输出留档
 └── build-info.<平台>.txt        # FFmpeg/AVS/NVIDIA 头文件 commit、软件包版本及动态依赖
@@ -220,7 +222,7 @@ FFMPEG_REF=n9.0.2 JOBS=4 bash scripts/build_media_tools_win.sh
 
 Windows 的 iconv 来自独立的 libiconv，构建显式链接 `-liconv`，避免关闭自动依赖探测后只检查 libc、最终链接缺少字符集转换符号。Linux 使用 libc 的 iconv 实现。
 
-FFmpeg 9 要求 libplacebo >= 7.351.0、Vulkan 头文件 >= 1.3.277，以及包含 `SpvFPEncoding` 的 SPIR-V 头文件，bookworm 系统包低于要求。Linux 使用 `build_placebo.sh` 固定源码构建 libplacebo、Vulkan-Headers 与 SPIRV-Headers，静态链接 libplacebo/GLSL 编译器，运行时新增 `libvulkan1`。Windows 使用 MSYS2 提供的版本及随包 DLL。Linux 静态依赖的安全更新需修改 pin 并重建，实际 commit 记录在 build-info。
+FFmpeg 9 要求 libplacebo >= 7.351.0、Vulkan 头文件 >= 1.3.277，以及包含 `SpvFPEncoding` 的 SPIR-V 头文件，bookworm 系统包低于要求。两平台使用 `build_placebo.sh` 固定源码构建 libplacebo、Vulkan-Headers 与 SPIRV-Headers，静态链接 libplacebo/GLSL 编译器；Linux 运行时新增 `libvulkan1`，Windows 由系统驱动提供 Vulkan loader。静态依赖的安全更新需要重建，固定源码的实际 commit 记录在 build-info。
 
 `JOBS` 限制编译并行度；`WORKDIR` 指定工作根目录，每次创建独立子目录，避免旧对象和 DLL 污染。`DIST` 指定输出目录，两者均可使用相对路径。构建目录会保留供排错，需要时自行清理旧目录。`FFMPEG_COMMIT` / `FFMPEG_VERSION` 由 CI 统一传入，本地通常无需设置。
 
@@ -242,7 +244,7 @@ ffmpeg -init_hw_device vulkan=vk:0 -filter_hw_device vk -ss 60 -i input.mkv -vf 
 
 也可使用 `python scripts/capture_cover.py input.mkv cover.jpg --ffmpeg /path/to/ffmpeg --ffprobe /path/to/ffprobe --seconds 60` 自动区分 SDR 与 DoVi/HDR。不覆盖已有输出。DoVi 采用软件 HEVC 解码保留 RPU side data，然后交给 libplacebo 重塑、色调映射并输出 sRGB 封面；普通 SDR 不需要 GPU。更新二进制不会自动修复仍使用普通 `scale` 的消费方命令，调用方必须同步采用此链路。
 
-无独立 GPU 的 Debian bookworm 可安装 `mesa-vulkan-drivers` 使用 lavapipe 软件 Vulkan；已用本地 Profile 5 短片段验证与 Windows GPU 输出一致性，但性能需按部署机器测量。Windows ZIP 包含 Vulkan loader，显卡 ICD 驱动仍由系统提供。
+无独立 GPU 的 Debian bookworm 可安装 `mesa-vulkan-drivers` 使用 lavapipe 软件 Vulkan；已用本地 Profile 5 短片段验证与 Windows GPU 输出一致性，但性能需按部署机器测量。Windows 单文件 EXE 不包含显卡驱动，Vulkan loader 和 ICD 均由驱动安装程序提供。
 
 实片验收：`python scripts/verify_dovi_cover.py input.mkv --ffmpeg /path/to/ffmpeg --ffprobe /path/to/ffprobe --reference confirmed-cover.png`。要求带 RPU 的 Profile 5，比较应用/忽略 RPU 的像素差；可选参考图必须是同时间点人工确认色彩正确的图像。没有参考图时只证明 RPU 生效，不宣称绝对色准。普通 CI 仅检查编译注册和 `apply_dolbyvision` 参数，不需要用户媒体或 GPU。
 
